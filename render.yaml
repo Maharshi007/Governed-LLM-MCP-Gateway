@@ -2,7 +2,7 @@
 # Audit DB is Supabase Postgres (set DATABASE_URL in the dashboard when prompted).
 services:
   - type: web
-    name: structurai
+    name: governed-llm-gateway
     runtime: docker
     plan: free
     healthCheckPath: /health
@@ -13,7 +13,7 @@ services:
       - key: REDIS_URL
         fromService:
           type: keyvalue
-          name: structurai-cache
+          name: governed-llm-gateway-cache
           property: connectionString
       - key: DATABASE_URL
         sync: false  # Supabase: postgresql+asyncpg://postgres.<ref>:<password>@<pooler-host>:5432/postgres?ssl=require
@@ -32,7 +32,7 @@ services:
         value: "true"
 
   - type: keyvalue
-    name: structurai-cache
+    name: governed-llm-gateway-cache
     plan: free
     maxmemoryPolicy: noeviction  # never evict budget/rate-limit/breaker state
     ipAllowList: []  # only reachable from Render services in the same account

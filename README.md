@@ -1,4 +1,4 @@
-# StructurAI
+# Governed LLM & MCP Gateway
 
 An AI gateway that sits between client apps and LLM providers. It turns unstructured text into **schema-validated JSON**, with caching, multi-provider failover, per-tenant budgets and a full audit trail.
 
@@ -71,9 +71,9 @@ Response headers: `X-Cache-Hit`, `X-Token-Cost`, `X-Provider`, `X-Prompt-Tokens`
 
 ```bash
 # Claude Code
-claude mcp add structurai -e STRUCTURAI_URL=http://localhost:8000 -e STRUCTURAI_TOKEN=<tenant-jwt>   -- <path-to>/.venv/Scripts/python.exe <path-to>/mcp_server/server.py
+claude mcp add governed-llm-gateway -e GATEWAY_URL=http://localhost:8000 -e GATEWAY_TOKEN=<tenant-jwt>   -- <path-to>/.venv/Scripts/python.exe <path-to>/mcp_server/server.py
 ```
-Claude Desktop uses the same command, args and env in `claude_desktop_config.json` under `mcpServers.structurai`.
+Claude Desktop uses the same command, args and env in `claude_desktop_config.json` under `mcpServers.governed-llm-gateway`.
 
 ## CI/CD and deployment
 
@@ -117,7 +117,7 @@ The cached request was about 30,000× faster and used no tokens. In CI, the Dock
 
 ## Project tracking
 
-The backlog is in Jira: epics and stories are in `docs/jira/structurai_backlog.csv`, with import steps in `docs/jira/README.md`.
+The backlog is in Jira: epics and stories are in `docs/jira/backlog.csv`, with import steps in `docs/jira/README.md`.
 
 ## Design decisions
 

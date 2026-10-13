@@ -189,5 +189,5 @@ async def test_metrics_exposed(make_client):
     c = await make_client()
     await c.post("/v1/extract", json=extract_body(), headers=await token_for(c))
     text = (await c.get("/metrics")).text
-    assert "structurai_requests_total" in text
-    assert "structurai_cost_usd_total" in text
+    assert "llm_gateway_requests_total" in text
+    assert "llm_gateway_cost_usd_total" in text

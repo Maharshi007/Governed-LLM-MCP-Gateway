@@ -1,12 +1,12 @@
-"""MCP server: exposes the StructurAI gateway as tools for AI agents
+"""MCP server: exposes the Governed LLM & MCP Gateway as tools for AI agents
 (Claude Desktop, Claude Code, any MCP client).
 
 Agents get schema-validated extraction with all of the gateway's guarantees
 (auth, budgets, caching, failover, audit) instead of calling an LLM directly.
 
 Env:
-  STRUCTURAI_URL    gateway base URL (default http://localhost:8000)
-  STRUCTURAI_TOKEN  tenant JWT from POST /v1/auth/token
+  GATEWAY_URL    gateway base URL (default http://localhost:8000)
+  GATEWAY_TOKEN  tenant JWT from POST /v1/auth/token
 """
 
 import os
@@ -15,10 +15,10 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-GATEWAY_URL = os.environ.get("STRUCTURAI_URL", "http://localhost:8000")
-TOKEN = os.environ.get("STRUCTURAI_TOKEN", "")
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:8000")
+TOKEN = os.environ.get("GATEWAY_TOKEN", "")
 
-mcp = FastMCP("structurai")
+mcp = FastMCP("governed-llm-gateway")
 
 
 def _client() -> httpx.AsyncClient:
@@ -34,13 +34,13 @@ async def _request(method: str, path: str, **kwargs) -> Any:
         resp = await client.request(method, path, **kwargs)
     if resp.status_code >= 400:
         # Surface gateway errors (budget, rate limit, outage) to the agent verbatim.
-        raise RuntimeError(f"StructurAI {resp.status_code}: {resp.text}")
+        raise RuntimeError(f"Gateway {resp.status_code}: {resp.text}")
     return resp
 
 
 @mcp.tool()
 async def extract_structured_data(schema_name: str, text: str) -> dict:
-    """Extract schema-validated JSON from unstructured text via the StructurAI gateway.
+    """Extract schema-validated JSON from unstructured text via the Governed LLM & MCP Gateway.
 
     Args:
         schema_name: one of the schemas returned by list_schemas (e.g. "invoice", "sentiment", "contact").

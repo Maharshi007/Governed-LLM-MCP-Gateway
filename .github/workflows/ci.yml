@@ -44,10 +44,10 @@ jobs:
           grep -qi "x-cache-hit: true" headers.txt
           jq -e '.data.total_amount == 125.5' body.json
           curl -sf localhost:8000/ready | jq .
-          curl -sf localhost:8000/metrics | grep structurai_requests_total
+          curl -sf localhost:8000/metrics | grep llm_gateway_requests_total
       - name: Audit log is append-only in Postgres
         run: |
-          if docker compose exec -T postgres psql -U structurai -c "DELETE FROM audit_log" 2>err.txt; then
+          if docker compose exec -T postgres psql -U gateway -c "DELETE FROM audit_log" 2>err.txt; then
             echo "DELETE should have been rejected"; exit 1
           fi
           grep "append-only" err.txt

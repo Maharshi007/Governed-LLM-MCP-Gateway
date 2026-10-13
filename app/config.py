@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "StructurAI"
+    app_name: str = "Governed LLM & MCP Gateway"
     environment: str = "dev"
 
     # Auth
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Infra. Empty redis_url -> in-process fakeredis; sqlite fallback for the audit DB.
     redis_url: str = ""
-    database_url: str = "sqlite+aiosqlite:///./structurai.db"
+    database_url: str = "sqlite+aiosqlite:///./gateway.db"
 
     # Providers (tried in order; providers without credentials are skipped)
     provider_chain: str = "openai,anthropic,ollama,mock"

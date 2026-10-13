@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="StructurAI",
+    title="Governed LLM & MCP Gateway",
     description="AI gateway: routing, fallback, caching, and strict schema validation for LLM extraction.",
     version="1.0.0",
     lifespan=lifespan,

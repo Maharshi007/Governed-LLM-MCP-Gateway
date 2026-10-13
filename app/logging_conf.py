@@ -19,4 +19,4 @@ def configure_logging(level: str = "INFO") -> None:
     logging.getLogger("uvicorn.access").disabled = True
 
 
-logger = logging.getLogger("structurai")
+logger = logging.getLogger("gateway")
