@@ -8,6 +8,8 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: ENVIRONMENT
+        value: production  # disables the /demo page and its token endpoint
       - key: REDIS_URL
         fromService:
           type: keyvalue

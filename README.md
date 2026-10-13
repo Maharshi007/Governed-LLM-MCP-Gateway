@@ -44,6 +44,10 @@ API: `:8000`, Prometheus: `:9090`.
 
 ## Try it
 
+**Easiest:** open **http://localhost:8000/demo**, choose a data type, and click *Extract data*. The page shows the result along with which provider answered, whether it came from cache, the time taken and the cost. This page is available only when `ENVIRONMENT=dev`.
+
+**From the command line:**
+
 ```bash
 # 1. Mint a tenant token (admin-only)
 curl -X POST localhost:8000/v1/auth/token -H "X-Admin-Key: dev-admin-key" \

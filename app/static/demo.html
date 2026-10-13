@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StructurAI Demo</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#636c76; --line:#d8dde3;
+          --accent:#2457d6; --ok:#1a7f37; --warn:#b35900; --bad:#c62828; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .step { font-weight: 600; margin-bottom: 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  textarea { width: 100%; min-height: 110px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; resize: vertical; }
+  button.go { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 22px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  button.go:disabled { opacity: .6; cursor: wait; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-size: 18px; font-weight: 600; }
+  .explain { background: #eef3ff; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; width: 35%; }
+  pre { background: #0f1720; color: #d7e0ea; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  .err { color: var(--bad); font-weight: 600; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); }
+  details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>StructurAI</h1>
+  <p class="sub">Paste messy text and get back clean, checked data.</p>
+
+  <div class="card">
+    <div class="step">1. What kind of data?</div>
+    <div class="row" id="schemas"></div>
+    <div class="step">2. Paste some text (or keep the example)</div>
+    <textarea id="text"></textarea>
+    <button class="go" id="go">Extract data</button>
+  </div>
+
+  <div class="card" id="result" hidden>
+    <div class="step">3. Result</div>
+    <div class="explain" id="explain"></div>
+    <div class="stats" id="stats"></div>
+    <table id="table"></table>
+    <details style="margin-top:12px"><summary>Show raw JSON</summary><pre id="raw"></pre></details>
+  </div>
+</main>
+<script>
+const EXAMPLES = {
+  invoice: "INVOICE #A-77 from Sunrise Electronics, dated 12 Feb 2026.\n4 x Monitor @ 9,000 = 36,000\n1 x Keyboard @ 1,500 = 1,500\nTotal INR 37,500",
+  sentiment: "Delivery was fast and the staff were really friendly. Will order again!",
+  contact: "Hi, I'm Arjun Mehta from Bluepeak Labs. Email arjun.mehta@bluepeak.example or call +91 99887 66554."
+};
+let schema = "invoice", token = null;
+
+function renderChips() {
+  const box = document.getElementById("schemas"); box.innerHTML = "";
+  for (const name of Object.keys(EXAMPLES)) {
+    const b = document.createElement("button");
+    b.className = "chip" + (name === schema ? " on" : "");
+    b.textContent = name[0].toUpperCase() + name.slice(1);
+    b.onclick = () => { schema = name; document.getElementById("text").value = EXAMPLES[name]; renderChips(); };
+    box.appendChild(b);
+  }
+}
+
+async function getToken() {
+  if (token) return token;
+  const r = await fetch("/demo/token", { method: "POST" });
+  if (!r.ok) throw new Error("Could not get a demo token (" + r.status + ")");
+  token = (await r.json()).access_token;
+  return token;
+}
+
+// LLM output is untrusted: escape before inserting into the page.
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function fmt(v) {
+  if (v === null || v === undefined) return "<span style='color:var(--muted)'>not found</span>";
+  if (Array.isArray(v)) {
+    if (v.length && typeof v[0] === "object") {
+      return v.map(o => Object.entries(o).map(([k, x]) => `${esc(k.replace(/_/g," "))}: <b>${esc(x)}</b>`).join(" · ")).join("<br>");
+    }
+    return v.map(esc).join(", ");
+  }
+  return esc(v);
+}
+
+document.getElementById("go").onclick = async () => {
+  const btn = document.getElementById("go");
+  btn.disabled = true; btn.textContent = "Working… (AI is reading)";
+  const out = document.getElementById("result"); out.hidden = false;
+  document.getElementById("explain").innerHTML = "Sending your text to the gateway…";
+  document.getElementById("stats").innerHTML = ""; document.getElementById("table").innerHTML = ""; document.getElementById("raw").textContent = "";
+  try {
+    const t = await getToken();
+    const r = await fetch("/v1/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + t },
+      body: JSON.stringify({ schema_name: schema, text: document.getElementById("text").value })
+    });
+    const body = await r.json();
+    if (!r.ok) {
+      document.getElementById("explain").innerHTML = `<span class="err">Error ${r.status}:</span> ${esc(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail))}`;
+      return;
+    }
+    const provider = body.provider === "ollama" ? "Llama (on your PC)" : body.provider === "mock" ? "Backup (mock)" : body.provider;
+    let why;
+    if (body.cache_hit) why = `<b class="ok">Answered from memory.</b> You asked this before, so no AI call was needed. That's why it's instant and free.`;
+    else if (body.provider === "mock") why = `<b class="warn">The main AI was unavailable</b>, so the gateway automatically switched to the backup provider. Your request still succeeded.`;
+    else if (body.correction_rounds > 0) why = `<b class="warn">The AI's first answer was wrong</b> (bad format or types). The gateway sent the error back and the AI fixed it ${body.correction_rounds} time(s) before you saw anything.`;
+    else why = `<b class="ok">The AI read your text</b> and the gateway checked that every field has the right type and format.`;
+    document.getElementById("explain").innerHTML = why;
+    const stats = [
+      ["Answered by", provider],
+      ["From memory?", body.cache_hit ? "Yes (cache)" : "No"],
+      ["Time taken", body.latency_ms < 1000 ? body.latency_ms.toFixed(1) + " ms" : (body.latency_ms/1000).toFixed(1) + " s"],
+      ["AI corrections", body.correction_rounds],
+      ["Tokens used", body.prompt_tokens + body.completion_tokens],
+      ["Cost", "$" + body.cost_usd.toFixed(6)],
+    ];
+    document.getElementById("stats").innerHTML = stats.map(([k,v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    document.getElementById("table").innerHTML = Object.entries(body.data)
+      .map(([k, v]) => `<tr><th>${esc(k.replace(/_/g, " "))}</th><td>${fmt(v)}</td></tr>`).join("");
+    document.getElementById("raw").textContent = JSON.stringify(body, null, 2);
+  } catch (e) {
+    document.getElementById("explain").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Extract data";
+  }
+};
+
+document.getElementById("text").value = EXAMPLES[schema];
+renderChips();
+</script>
+</body>
+</html>

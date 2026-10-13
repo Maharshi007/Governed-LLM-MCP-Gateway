@@ -3,7 +3,9 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
+from pathlib import Path
+
+from fastapi.responses import FileResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import select
 
@@ -237,6 +239,19 @@ async def audit(limit: int = 50, principal: Principal = Depends(require_role("ex
              .order_by(db.AuditLog.id.desc()).limit(min(limit, 500)))
         rows = (await session.execute(q)).scalars().all()
     return [{c.name: getattr(r, c.name) for c in db.AuditLog.__table__.columns} for r in rows]
+
+
+# Demo UI: dev only. /demo/token mints a short-lived token without the admin key,
+# so it must never be enabled in production.
+if get_settings().environment == "dev":
+    @app.get("/demo", include_in_schema=False)
+    async def demo_page():
+        return FileResponse(Path(__file__).parent / "static" / "demo.html")
+
+    @app.post("/demo/token", include_in_schema=False)
+    async def demo_token():
+        token, expires_in = issue_token("demo", ["extract"], None)
+        return TokenResponse(access_token=token, expires_in=expires_in)
 
 
 @app.get("/health")
