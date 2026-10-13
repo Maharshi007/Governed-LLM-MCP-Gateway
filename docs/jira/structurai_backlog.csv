@@ -1,0 +1,58 @@
+Issue Id,Parent,Issue Type,Summary,Description,Status,Priority,Labels
+1,,Epic,Gateway Core & API,"FastAPI service, provider abstraction, extraction pipeline.",Done,High,
+2,,Epic,Resilience & Routing,"Retries, circuit breaking and multi-provider failover.",To Do,High,
+3,,Epic,Structured Output & Validation,Strict schema enforcement and LLM self-correction.,Done,High,
+4,,Epic,"Multi-Tenancy, Security & Cost Controls","Auth, RBAC, caching, idempotency, rate limits, budgets.",Done,High,
+5,,Epic,Observability & Audit,"Metrics, structured logs, telemetry headers, immutable audit log.",Done,High,
+6,,Epic,DevOps: CI/CD & Deployment,"Containers, version control, CI pipeline, cloud deploy.",To Do,High,
+7,,Epic,MCP Integration,Expose the gateway to AI agents via Model Context Protocol.,To Do,High,
+8,1,Story,Scaffold FastAPI service with typed settings,"FastAPI app, pydantic-settings config from env/.env, lifespan startup/shutdown for Redis and DB.
+
+AC:
+- App boots with /health
+- All config overridable via env vars",Done,High,backend
+9,1,Story,"Provider abstraction with OpenAI, Anthropic and mock providers","LLMProvider base class returning text + token usage + cost. OpenAI (JSON mode), Anthropic (claude-haiku-5-5), deterministic mock with chaos markers.
+
+AC:
+- Providers without API keys are skipped
+- SDK-level retries disabled (gateway owns retry policy)",Done,High,backend llm
+10,1,Story,POST /v1/extract end-to-end pipeline,"Auth -> rate limit/budget -> idempotency/cache -> routing -> validation -> telemetry -> response.
+
+AC:
+- Returns validated JSON + usage + latency
+- Correct status codes: 401/403/402/409/422/429/503",Done,Highest,backend api
+11,2,Story,Exponential backoff retries with Tenacity,"Retry only transient errors (429, 5xx, timeouts) with exponential backoff + jitter. Non-retryable 4xx fail over immediately.",Done,High,resilience
+12,2,Story,Redis-backed distributed circuit breaker,"CLOSED/OPEN/HALF_OPEN states stored in Redis so all replicas share state. Single half-open probe via SET NX.
+
+AC:
+- Opens after N consecutive failures
+- Open provider is not called
+- Success in half-open closes the circuit",Done,High,resilience redis
+13,2,Story,Automatic multi-provider fallback chain,Ordered provider chain (openai -> anthropic -> mock). Fallback on failure or open circuit; 503 with per-provider errors when all fail.,Done,Highest,resilience llm
+14,2,Story,Readiness endpoint exposing circuit states,/ready reports Redis health and each provider's circuit state; 503 when no provider is available.,Done,Medium,resilience ops
+15,2,Story,Verify live OpenAI and Anthropic calls with real API keys,"Run extraction against real providers, confirm JSON parsing, token accounting and cost calculation match the vendor dashboards.",To Do,High,llm testing
+16,3,Story,"Strict Pydantic schema registry (invoice, sentiment, contact)",strict=True + extra=forbid models. No silent coercion; ISO-8601 dates; registry exposed at /v1/schemas.,Done,High,validation
+17,3,Story,LLM self-correction loop on validation failure,"On JSON/validation error, send the exact error back to the same provider and request a corrected payload (max 2 rounds).
+
+AC:
+- Wrong types corrected in 1 round
+- Non-JSON output corrected in 1 round
+- 422 after max rounds",Done,Highest,validation llm
+18,4,Story,JWT bearer auth with role-based access control,"Admin-key protected token minting; HS256 JWT with tenant id, roles and token budget claims; require_role dependency.",Done,Highest,security
+19,4,Story,Tenant-scoped exact-match response cache,SHA-256(schema + text) key under the tenant prefix; TTL; cache hits cost $0 and skip the LLM.,Done,High,redis cost
+20,4,Story,Idempotency-Key support,Replays stored response for repeated keys; in-flight lock returns 409 for concurrent duplicates.,Done,Medium,api redis
+21,4,Story,Sliding-window per-tenant rate limiting,Redis sorted-set sliding window; 429 + Retry-After; X-RateLimit-Remaining header.,Done,High,redis security
+22,4,Story,Daily per-tenant token budget enforcement,Tokens consumed per tenant per UTC day; 402 when exhausted; /v1/usage endpoint.,Done,High,cost
+23,4,Story,Atomic token budget reservation,Current check-then-charge can overshoot by one in-flight request. Reserve estimated tokens up front and reconcile after the call.,To Do,Low,cost
+24,5,Story,Prometheus metrics endpoint,"Counters for requests, cache hits/misses, provider calls, fallbacks, validation retries, tokens, cost; latency histogram; circuit gauge.",Done,High,observability
+25,5,Story,Structured JSON logging with request IDs,python-json-logger; X-Request-ID propagated/generated per request.,Done,Medium,observability
+26,5,Story,Telemetry response headers,"X-Cache-Hit, X-Token-Cost, X-Provider, X-Prompt-Tokens, X-Completion-Tokens, X-Correction-Rounds.",Done,Medium,observability api
+27,5,Story,Append-only audit log in PostgreSQL,"Every request (success and failure) logged with tokens, cost, latency, provider. DB trigger rejects UPDATE/DELETE.",Done,High,database security
+28,6,Story,Automated test suite (pytest),"14 async tests: auth, RBAC, cache, tenant isolation, self-correction, fallback, circuit breaker, outage, idempotency, budget, rate limit, audit immutability, metrics.",Done,High,testing
+29,6,Story,Dockerfile and docker-compose stack,API + Redis 7 + Postgres 16 + Prometheus; non-root container; healthchecks.,Done,High,docker
+30,6,Story,Verify docker-compose stack end-to-end,"Run docker compose up; confirm Postgres audit trigger, Redis-backed breaker and Prometheus scraping work.",To Do,High,docker testing
+31,6,Story,Initialize Git repository and push to GitHub,"git init, .gitignore, initial commit, push to GitHub; connect GitHub for Jira app so commits/PRs link to tickets.",To Do,Highest,git github
+32,6,Story,GitHub Actions CI pipeline,"On push/PR: install deps, run pytest, build Docker image. Required status check on main.",To Do,High,ci-cd github-actions
+33,6,Story,Use Supabase as managed PostgreSQL for audit log,Point DATABASE_URL at Supabase Postgres; verify append-only trigger is created.,To Do,Medium,database supabase
+34,6,Story,Deploy gateway to Render,render.yaml blueprint: web service from Dockerfile + Render Key Value (Redis); secrets via env vars; auto-deploy from main.,To Do,High,deployment render
+35,7,Story,MCP server exposing extract as a tool,"MCP server with extract_structured_data and list_schemas tools that call the gateway, usable from Claude Desktop / Claude Code.",To Do,High,mcp llm

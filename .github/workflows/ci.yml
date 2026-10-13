@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  integration:
+    # Full stack against real Redis + Postgres: verifies the Postgres append-only
+    # trigger, Redis-backed circuit breaker and the container image itself.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        env:
+          OLLAMA_DOCKER_URL: ""  # no local model in CI; mock provider serves requests
+        run: |
+          cp .env.example .env
+          docker compose up -d --build --wait api
+      - name: Smoke test
+        run: |
+          TOKEN=$(curl -sf -X POST localhost:8000/v1/auth/token \
+            -H "X-Admin-Key: dev-admin-key" -H "Content-Type: application/json" \
+            -d '{"tenant_id":"ci","roles":["extract"]}' | jq -r .access_token)
+          for i in 1 2; do
+            curl -sf -D headers.txt -o body.json -X POST localhost:8000/v1/extract \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              -d '{"schema_name":"invoice","text":"[[bad_types]] Invoice INV-1001 from Acme"}'
+            cat headers.txt; jq . body.json
+          done
+          grep -qi "x-cache-hit: true" headers.txt
+          jq -e '.data.total_amount == 125.5' body.json
+          curl -sf localhost:8000/ready | jq .
+          curl -sf localhost:8000/metrics | grep structurai_requests_total
+      - name: Audit log is append-only in Postgres
+        run: |
+          if docker compose exec -T postgres psql -U structurai -c "DELETE FROM audit_log" 2>err.txt; then
+            echo "DELETE should have been rejected"; exit 1
+          fi
+          grep "append-only" err.txt
+      - name: Logs
+        if: always()
+        run: docker compose logs api

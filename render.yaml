@@ -1,0 +1,36 @@
+# Render Blueprint: New -> Blueprint -> select this repo.
+# Audit DB is Supabase Postgres (set DATABASE_URL in the dashboard when prompted).
+services:
+  - type: web
+    name: structurai
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: structurai-cache
+          property: connectionString
+      - key: DATABASE_URL
+        sync: false  # Supabase: postgresql+asyncpg://postgres.<ref>:<password>@<pooler-host>:5432/postgres?ssl=require
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # No Ollama in the cloud; providers without keys are skipped.
+      - key: PROVIDER_CHAIN
+        value: anthropic,openai,mock
+      - key: ENABLE_MOCK_PROVIDER
+        value: "true"
+
+  - type: keyvalue
+    name: structurai-cache
+    plan: free
+    maxmemoryPolicy: noeviction  # never evict budget/rate-limit/breaker state
+    ipAllowList: []  # only reachable from Render services in the same account
