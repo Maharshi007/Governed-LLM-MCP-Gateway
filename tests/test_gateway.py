@@ -109,13 +109,48 @@ async def test_idempotency_replay(make_client):
 
 
 @pytest.mark.asyncio
-async def test_token_budget_enforced(make_client):
+async def test_budget_rejects_request_that_would_exceed_it(make_client):
     c = await make_client()
-    h = await token_for(c, budget=10)
-    r1 = await c.post("/v1/extract", json=extract_body(), headers=h)
-    assert r1.status_code == 200  # first call allowed, consumes > 10 tokens
-    r2 = await c.post("/v1/extract", json=extract_body(text="different"), headers=h)
-    assert r2.status_code == 402
+    h = await token_for(c, budget=100)  # smaller than one request's reservation
+    r = await c.post("/v1/extract", json=extract_body(), headers=h)
+    assert r.status_code == 402
+    assert (await c.get("/v1/usage", headers=h)).json()["tokens_used_today"] == 0  # reservation refunded
+
+
+@pytest.mark.asyncio
+async def test_budget_reservation_reconciled_to_actual_usage(make_client):
+    c = await make_client()
+    h = await token_for(c, budget=10_000)
+    body = (await c.post("/v1/extract", json=extract_body(), headers=h)).json()
+    used = (await c.get("/v1/usage", headers=h)).json()["tokens_used_today"]
+    assert used == body["prompt_tokens"] + body["completion_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_cannot_overshoot_budget(make_client):
+    import asyncio
+    from app import store
+
+    class SlowProvider(MockProvider):
+        async def complete(self, system, messages):
+            await asyncio.sleep(0.2)  # keep all three requests in flight together
+            return await super().complete(system, messages)
+
+    c = await make_client([SlowProvider()])
+    one = store.estimate_tokens(INVOICE_TEXT + " #0")
+    h = await token_for(c, budget=int(one * 2.5))  # room for 2 reservations, not 3
+    rs = await asyncio.gather(*[
+        c.post("/v1/extract", json=extract_body(text=f"{INVOICE_TEXT} #{i}"), headers=h) for i in range(3)
+    ])
+    assert sorted(r.status_code for r in rs) == [200, 200, 402]
+
+
+@pytest.mark.asyncio
+async def test_failed_upstream_refunds_reservation(make_client):
+    c = await make_client([MockProvider("down", fail=True)])
+    h = await token_for(c)
+    assert (await c.post("/v1/extract", json=extract_body(), headers=h)).status_code == 503
+    assert (await c.get("/v1/usage", headers=h)).json()["tokens_used_today"] == 0
 
 
 @pytest.mark.asyncio

@@ -104,7 +104,7 @@ async def extract(
                             headers={"Retry-After": "60"})
     if await store.tokens_used_today(tenant) >= principal.token_budget:
         REQUESTS.labels(tenant, req.schema_name, "budget_exceeded").inc()
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "daily token budget exhausted")
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "daily token budget exhausted")  # fast path
 
     schema_cls = SCHEMA_REGISTRY.get(req.schema_name)
     if schema_cls is None:
@@ -140,11 +140,20 @@ async def extract(
             return body
         CACHE_MISSES.labels(tenant).inc()
 
+        # Reserve estimated tokens atomically; reconciled to actual usage below.
+        reserved = store.estimate_tokens(req.text)
+        if not await store.reserve_tokens(tenant, reserved, principal.token_budget):
+            REQUESTS.labels(tenant, req.schema_name, "budget_exceeded").inc()
+            raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
+                                "request would exceed the daily token budget")
+        actual_tokens = 0
+
         # 3 + 4. Routing, resilience, validation, self-correction
         try:
             result = await request.app.state.gateway.extract(
                 req.schema_name, schema_cls, req.text, req.provider_hint
             )
+            actual_tokens = result.usage.prompt_tokens + result.usage.completion_tokens
         except AllProvidersFailed as e:
             REQUESTS.labels(tenant, req.schema_name, "upstream_unavailable").inc()
             await db.write_audit(request_id=request_id, tenant_id=tenant, schema_name=req.schema_name,
@@ -153,7 +162,8 @@ async def extract(
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                                 {"message": "all LLM providers unavailable", "providers": e.errors})
         except ExtractionFailed as e:
-            await store.consume_tokens(tenant, e.usage.prompt_tokens + e.usage.completion_tokens)
+            # Tokens were really spent, so they count against the budget.
+            actual_tokens = e.usage.prompt_tokens + e.usage.completion_tokens
             REQUESTS.labels(tenant, req.schema_name, "validation_failed").inc()
             await db.write_audit(request_id=request_id, tenant_id=tenant, schema_name=req.schema_name,
                                  status="validation_failed", error=str(e)[:2000],
@@ -162,6 +172,8 @@ async def extract(
                                  latency_ms=(time.perf_counter() - start) * 1000)
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                                 "LLM output could not be validated against the schema")
+        finally:
+            await store.adjust_tokens(tenant, actual_tokens - reserved)
 
         # 5. Telemetry
         latency = (time.perf_counter() - start) * 1000
@@ -173,7 +185,6 @@ async def extract(
             completion_tokens=u.completion_tokens, cost_usd=round(u.cost_usd, 8),
             latency_ms=round(latency, 2),
         )
-        await store.consume_tokens(tenant, u.prompt_tokens + u.completion_tokens)
         await store.cache_set(key, body.model_dump())
         TOKENS.labels(tenant, "prompt").inc(u.prompt_tokens)
         TOKENS.labels(tenant, "completion").inc(u.completion_tokens)

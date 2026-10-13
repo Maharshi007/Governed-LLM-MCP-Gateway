@@ -96,7 +96,20 @@ Claude Desktop uses the same command, args and env in `claude_desktop_config.jso
 ```bash
 pytest -q
 ```
-There are 20 tests. They cover auth/RBAC, cache hit/miss, tenant cache isolation, self-correction, fallback, circuit-breaker tripping, total outage (503), idempotent replay, token budget (402), rate limit (429), audit immutability, metrics, the MCP tools and the Ollama provider.
+There are 23 tests. They cover auth/RBAC, cache hit/miss, tenant cache isolation, self-correction, fallback, circuit-breaker tripping, total outage (503), idempotent replay, token budget (402, including concurrent requests), rate limit (429), audit immutability, metrics, the MCP tools and the Ollama provider.
+
+## Verified results
+
+Measured against a real local model (llama3.2:3b on a GTX 1650 4 GB, via Ollama, with the mock provider disabled):
+
+| Request | Result | Latency | Tokens | Cost |
+|---|---|---|---|---|
+| Invoice, 2 line items (cold model load) | All fields schema-valid; numbers, ISO date and INR currency correct | 33.3 s | 496 / 86 | $0 |
+| Same invoice again | Served from cache (`X-Cache-Hit: true`) | **1.05 ms** | 0 | $0 |
+| Sentiment review | Valid enum, confidence and key phrases | 7.7 s | 243 / 29 | $0 |
+| Contact, via MCP stdio client | Name, email, phone and company extracted | 12.7 s | 269 / 45 | $0 |
+
+The cached request was about 30,000× faster and used no tokens. In CI, the Docker stack runs with real Redis and Postgres, and Postgres rejects `DELETE FROM audit_log`.
 
 ## Project tracking
 
@@ -109,6 +122,7 @@ The backlog is in Jira: epics and stories are in `docs/jira/structurai_backlog.c
 - **Strict Pydantic.** Validation uses `strict=True` and `extra="forbid"`, so `"125.5"` is rejected for a float field instead of being silently coerced.
 - **Self-correction stays on the same provider**, because that provider holds the conversation context.
 - **Cache keys are scoped per tenant** (`sha256(schema + text)` under each tenant's prefix), so one tenant can never read another tenant's data.
+- **Token budgets are reserved atomically.** Each request reserves an estimate with Redis `INCRBY` before calling a model, so concurrent requests can't jointly exceed the budget. The reservation is corrected to actual usage afterwards, and refunded if every provider fails.
 - **Cache hits cost 0** and do not count against the budget. Failed validations do count, because those tokens were actually spent.
 - **The audit log is append-only at the database level.** A trigger rejects UPDATE and DELETE, and an audit-write failure is logged but does not fail the client request.
 
@@ -117,5 +131,4 @@ The backlog is in Jira: epics and stories are in `docs/jira/structurai_backlog.c
 - Auth is JWT bearer tokens minted by an admin endpoint, not a full OAuth 2.0 authorization server or IdP integration.
 - Caching is exact-match only. There is no semantic caching.
 - Pricing tables are hardcoded in the provider modules and must be updated by hand.
-- Budgets are checked before a call and charged after it, so one in-flight request can overshoot the budget slightly.
 - Ollama isn't available on Render. The cloud deployment uses Claude, OpenAI or the mock provider.

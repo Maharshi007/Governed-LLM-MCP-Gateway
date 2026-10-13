@@ -5,7 +5,7 @@ Issue Id,Parent,Issue Type,Summary,Description,Status,Priority,Labels
 4,,Epic,"Multi-Tenancy, Security & Cost Controls","Auth, RBAC, caching, idempotency, rate limits, budgets.",Done,High,
 5,,Epic,Observability & Audit,"Metrics, structured logs, telemetry headers, immutable audit log.",Done,High,
 6,,Epic,DevOps: CI/CD & Deployment,"Containers, version control, CI pipeline, cloud deploy.",To Do,High,
-7,,Epic,MCP Integration,Expose the gateway to AI agents via Model Context Protocol.,To Do,High,
+7,,Epic,MCP Integration,Expose the gateway to AI agents via Model Context Protocol.,Done,High,
 8,1,Story,Scaffold FastAPI service with typed settings,"FastAPI app, pydantic-settings config from env/.env, lifespan startup/shutdown for Redis and DB.
 
 AC:
@@ -30,7 +30,9 @@ AC:
 - Success in half-open closes the circuit",Done,High,resilience redis
 13,2,Story,Automatic multi-provider fallback chain,Ordered provider chain (openai -> anthropic -> mock). Fallback on failure or open circuit; 503 with per-provider errors when all fail.,Done,Highest,resilience llm
 14,2,Story,Readiness endpoint exposing circuit states,/ready reports Redis health and each provider's circuit state; 503 when no provider is available.,Done,Medium,resilience ops
-15,2,Story,Verify live OpenAI and Anthropic calls with real API keys,"Run extraction against real providers, confirm JSON parsing, token accounting and cost calculation match the vendor dashboards.",To Do,High,llm testing
+15,2,Story,Verify live OpenAI and Anthropic calls with real API keys,"Run extraction against real providers, confirm JSON parsing, token accounting and cost calculation match the vendor dashboards.
+
+Blocked: needs paid API keys (Claude Pro does not include API access).",To Do,High,llm testing
 16,3,Story,"Strict Pydantic schema registry (invoice, sentiment, contact)",strict=True + extra=forbid models. No silent coercion; ISO-8601 dates; registry exposed at /v1/schemas.,Done,High,validation
 17,3,Story,LLM self-correction loop on validation failure,"On JSON/validation error, send the exact error back to the same provider and request a corrected payload (max 2 rounds).
 
@@ -43,16 +45,20 @@ AC:
 20,4,Story,Idempotency-Key support,Replays stored response for repeated keys; in-flight lock returns 409 for concurrent duplicates.,Done,Medium,api redis
 21,4,Story,Sliding-window per-tenant rate limiting,Redis sorted-set sliding window; 429 + Retry-After; X-RateLimit-Remaining header.,Done,High,redis security
 22,4,Story,Daily per-tenant token budget enforcement,Tokens consumed per tenant per UTC day; 402 when exhausted; /v1/usage endpoint.,Done,High,cost
-23,4,Story,Atomic token budget reservation,Current check-then-charge can overshoot by one in-flight request. Reserve estimated tokens up front and reconcile after the call.,To Do,Low,cost
+23,4,Story,Atomic token budget reservation,Reserve estimated tokens with atomic Redis INCRBY before the LLM call; reject (402) if the sum of in-flight reservations would exceed the budget; reconcile to actual usage after; refund on upstream failure. Covered by a concurrency test.,Done,Low,cost
 24,5,Story,Prometheus metrics endpoint,"Counters for requests, cache hits/misses, provider calls, fallbacks, validation retries, tokens, cost; latency histogram; circuit gauge.",Done,High,observability
 25,5,Story,Structured JSON logging with request IDs,python-json-logger; X-Request-ID propagated/generated per request.,Done,Medium,observability
 26,5,Story,Telemetry response headers,"X-Cache-Hit, X-Token-Cost, X-Provider, X-Prompt-Tokens, X-Completion-Tokens, X-Correction-Rounds.",Done,Medium,observability api
 27,5,Story,Append-only audit log in PostgreSQL,"Every request (success and failure) logged with tokens, cost, latency, provider. DB trigger rejects UPDATE/DELETE.",Done,High,database security
 28,6,Story,Automated test suite (pytest),"14 async tests: auth, RBAC, cache, tenant isolation, self-correction, fallback, circuit breaker, outage, idempotency, budget, rate limit, audit immutability, metrics.",Done,High,testing
 29,6,Story,Dockerfile and docker-compose stack,API + Redis 7 + Postgres 16 + Prometheus; non-root container; healthchecks.,Done,High,docker
-30,6,Story,Verify docker-compose stack end-to-end,"Run docker compose up; confirm Postgres audit trigger, Redis-backed breaker and Prometheus scraping work.",To Do,High,docker testing
-31,6,Story,Initialize Git repository and push to GitHub,"git init, .gitignore, initial commit, push to GitHub; connect GitHub for Jira app so commits/PRs link to tickets.",To Do,Highest,git github
-32,6,Story,GitHub Actions CI pipeline,"On push/PR: install deps, run pytest, build Docker image. Required status check on main.",To Do,High,ci-cd github-actions
+30,6,Story,Verify docker-compose stack end-to-end,"Run docker compose up; confirm Postgres audit trigger, Redis-backed breaker and Prometheus scraping work.
+
+Verified in GitHub Actions 'integration' job: real Redis + Postgres, smoke test, append-only trigger rejects DELETE.",Done,High,docker testing
+31,6,Story,Initialize Git repository and push to GitHub,"git init, .gitignore, initial commit, push to GitHub; connect GitHub for Jira app so commits/PRs link to tickets.",Done,Highest,git github
+32,6,Story,GitHub Actions CI pipeline,"On push/PR: install deps, run pytest, build Docker image. Required status check on main.",Done,High,ci-cd github-actions
 33,6,Story,Use Supabase as managed PostgreSQL for audit log,Point DATABASE_URL at Supabase Postgres; verify append-only trigger is created.,To Do,Medium,database supabase
 34,6,Story,Deploy gateway to Render,render.yaml blueprint: web service from Dockerfile + Render Key Value (Redis); secrets via env vars; auto-deploy from main.,To Do,High,deployment render
-35,7,Story,MCP server exposing extract as a tool,"MCP server with extract_structured_data and list_schemas tools that call the gateway, usable from Claude Desktop / Claude Code.",To Do,High,mcp llm
+35,7,Story,MCP server exposing extract as a tool,"MCP server with extract_structured_data and list_schemas tools that call the gateway, usable from Claude Desktop / Claude Code.",Done,High,mcp llm
+36,2,Story,Local Llama provider via Ollama,"OllamaProvider calling /api/chat in JSON mode; $0 cost; no API key. Verified live with llama3.2:3b on a GTX 1650: invoice, sentiment and contact extraction all schema-valid on first attempt.",Done,High,llm ollama
+37,7,Story,Verify MCP server over stdio with a real MCP client,Ran an MCP ClientSession over stdio: list_tools + extract_structured_data against the live gateway backed by Ollama.,Done,Medium,mcp testing

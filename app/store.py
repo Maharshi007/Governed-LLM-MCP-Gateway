@@ -105,9 +105,24 @@ async def tokens_used_today(tenant_id: str) -> int:
     return int(await get_redis().get(_budget_key(tenant_id)) or 0)
 
 
-async def consume_tokens(tenant_id: str, tokens: int) -> int:
+async def adjust_tokens(tenant_id: str, delta: int) -> int:
     r = get_redis()
     key = _budget_key(tenant_id)
-    used = await r.incrby(key, tokens)
+    used = await r.incrby(key, delta)
     await r.expire(key, 2 * 86400)
     return int(used)
+
+
+async def reserve_tokens(tenant_id: str, estimate: int, budget: int) -> bool:
+    """Reserve an estimate up front so concurrent requests can't jointly overshoot the
+    budget. INCRBY is atomic: each request sees the sum of all in-flight reservations.
+    The caller reconciles with adjust_tokens(actual - estimate) once usage is known."""
+    if await adjust_tokens(tenant_id, estimate) > budget:
+        await adjust_tokens(tenant_id, -estimate)
+        return False
+    return True
+
+
+def estimate_tokens(text: str, max_output: int = 1024, prompt_overhead: int = 600) -> int:
+    # ~4 chars/token for English; prompt_overhead covers the system prompt + schema.
+    return len(text) // 4 + prompt_overhead + max_output
